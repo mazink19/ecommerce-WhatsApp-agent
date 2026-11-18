@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+requests
+python-dotenv
+google-genai
+neonize
+pytest
+httpx
+ruff
