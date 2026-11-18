@@ -1,6 +1,11 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
+"""SQLAlchemy models for products, carts, and orders."""
+
+from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import relationship
-from database import Base
+
+from .database import Base
 
 
 class Category(Base):
@@ -10,7 +15,7 @@ class Category(Base):
     name = Column(String, unique=True, nullable=False)
     description = Column(String)
 
-    products = relationship("Product", back_populates="category", cascade="all, delete-orphan")
+    products = relationship("Product", back_populates="category")
 
 
 class Product(Base):
@@ -24,11 +29,12 @@ class Product(Base):
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=False)
 
     category = relationship("Category", back_populates="products")
-    cart_items = relationship("CartItem", back_populates="product", cascade="all, delete-orphan")
+    cart_items = relationship("CartItem", back_populates="product")
 
 
 class CartItem(Base):
     __tablename__ = "cart_items"
+    __table_args__ = (UniqueConstraint("customer_name", "product_id", name="uq_cart_customer_product"),)
 
     id = Column(Integer, primary_key=True)
     customer_name = Column(String, nullable=False)
@@ -43,11 +49,12 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True)
     customer_name = Column(String, nullable=False)
-    customer_phone = Column(String)
-    total_price = Column(Float, default=0.0, nullable=False)
+    shipping_address = Column(String, nullable=False)
+    total = Column(Float, default=0.0, nullable=False)
     status = Column(String, default="pending", nullable=False)
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
 
-    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
+    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan", lazy="selectin")
 
 
 class OrderItem(Base):
@@ -56,7 +63,6 @@ class OrderItem(Base):
     id = Column(Integer, primary_key=True)
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    product_name = Column(String, nullable=False)
     unit_price = Column(Float, nullable=False)
     quantity = Column(Integer, nullable=False)
 

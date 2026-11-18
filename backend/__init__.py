@@ -1,0 +1,1 @@
+"""FastAPI store backend package."""

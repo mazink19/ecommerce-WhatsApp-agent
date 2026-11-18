@@ -1,20 +1,28 @@
+"""Database configuration for the store API."""
+
+from collections.abc import Generator
 import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "ecommerce.db")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-# connect_args={"check_same_thread": False} is required for SQLite in multithreaded FastAPI apps
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-
+BASE_DIR = Path(__file__).resolve().parent
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'ecommerce.db'}")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
+    """Yield one database session for an API request."""
     db = SessionLocal()
     try:
         yield db
