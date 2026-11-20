@@ -15,7 +15,9 @@ _TIMEOUT_SECONDS = 10
 def _request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
     """Run one backend request and convert every transport or HTTP error to data."""
     try:
-        response = _SESSION.request(method, f"{_BACKEND_URL}{path}", timeout=_TIMEOUT_SECONDS, **kwargs)
+        response = _SESSION.request(
+            method, f"{_BACKEND_URL}{path}", timeout=_TIMEOUT_SECONDS, **kwargs
+        )
         response.raise_for_status()
         data = response.json()
         return {"success": True, **(data if isinstance(data, dict) else {"data": data})}
@@ -25,7 +27,11 @@ def _request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         if response is not None:
             try:
                 payload = response.json()
-                reason = str(payload.get("detail", reason)) if isinstance(payload, dict) else reason
+                reason = (
+                    str(payload.get("detail", reason))
+                    if isinstance(payload, dict)
+                    else reason
+                )
             except ValueError:
                 reason = response.text or reason
         return {"success": False, "error": reason}
@@ -47,7 +53,9 @@ def list_categories() -> dict[str, Any]:
     return _request("GET", "/categories/")
 
 
-def search_products(keyword: str = "", category_id: int = 0, in_stock_only: bool = False) -> dict[str, Any]:
+def search_products(
+    keyword: str = "", category_id: int = 0, in_stock_only: bool = False
+) -> dict[str, Any]:
     """Search current products. Call this before quoting any price or stock to a customer.
 
     Args:
@@ -61,7 +69,30 @@ def search_products(keyword: str = "", category_id: int = 0, in_stock_only: bool
     params: dict[str, Any] = {"keyword": keyword, "in_stock_only": in_stock_only}
     if category_id:
         params["category_id"] = category_id
-    return _request("GET", "/products/", params=params)
+    result = _request("GET", "/products/", params=params)
+    products = result.get("data")
+    if result.get("success") and isinstance(products, list) and not in_stock_only:
+        out_of_stock_categories = {
+            product.get("category_id")
+            for product in products
+            if isinstance(product, dict)
+            and product.get("stock", 0) == 0
+            and product.get("category_id")
+        }
+        alternatives: list[dict[str, Any]] = []
+        for unavailable_category_id in sorted(out_of_stock_categories):
+            alternative_result = _request(
+                "GET",
+                "/products/",
+                params={"category_id": unavailable_category_id, "in_stock_only": True},
+            )
+            if alternative_result.get("success") and isinstance(
+                alternative_result.get("data"), list
+            ):
+                alternatives.extend(alternative_result["data"])
+        if alternatives:
+            result["in_stock_alternatives"] = alternatives
+    return result
 
 
 def get_product_details(product_id: int) -> dict[str, Any]:
@@ -88,7 +119,9 @@ def get_customer_cart(customer_name: str) -> dict[str, Any]:
     return _request("GET", f"/cart/{customer_name}/")
 
 
-def add_item_to_cart(customer_name: str, product_id: int, quantity: int = 1) -> dict[str, Any]:
+def add_item_to_cart(
+    customer_name: str, product_id: int, quantity: int = 1
+) -> dict[str, Any]:
     """Add a product to a cart. Call only after identifying the product and requested quantity.
 
     Args:
@@ -102,7 +135,11 @@ def add_item_to_cart(customer_name: str, product_id: int, quantity: int = 1) -> 
     return _request(
         "POST",
         "/cart/items/",
-        json={"customer_name": customer_name, "product_id": product_id, "quantity": quantity},
+        json={
+            "customer_name": customer_name,
+            "product_id": product_id,
+            "quantity": quantity,
+        },
     )
 
 

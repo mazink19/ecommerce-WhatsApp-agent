@@ -52,33 +52,47 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_product_search_includes_description_and_stock_filter(client: TestClient) -> None:
+def test_product_search_includes_description_and_stock_filter(
+    client: TestClient,
+) -> None:
     """Keyword searches are case-insensitive partial matches on names and descriptions."""
-    response = client.get("/products/", params={"keyword": "KEYBOARD", "in_stock_only": True})
+    response = client.get(
+        "/products/", params={"keyword": "KEYBOARD", "in_stock_only": True}
+    )
     assert response.status_code == 200
     assert [product["name"] for product in response.json()] == ["Mechanical Keyboard"]
 
-    response = client.get("/products/", params={"keyword": "audio", "in_stock_only": True})
+    response = client.get(
+        "/products/", params={"keyword": "audio", "in_stock_only": True}
+    )
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_cart_merges_lines_and_rejects_excess_stock(client: TestClient) -> None:
     """A cart keeps one product line and cannot reserve beyond inventory."""
-    first = client.post("/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 1})
+    first = client.post(
+        "/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 1}
+    )
     assert first.status_code == 201
-    merged = client.post("/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 2})
+    merged = client.post(
+        "/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 2}
+    )
     assert merged.status_code == 201
     assert merged.json()["quantity"] == 3
 
-    rejected = client.post("/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 1})
+    rejected = client.post(
+        "/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 1}
+    )
     assert rejected.status_code == 400
     assert "Only 3" in rejected.json()["detail"]
 
 
 def test_checkout_decrements_stock_and_cancel_restores_it(client: TestClient) -> None:
     """Checkout and cancellation preserve inventory integrity."""
-    added = client.post("/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 2})
+    added = client.post(
+        "/cart/items/", json={"customer_name": "2010", "product_id": 1, "quantity": 2}
+    )
     assert added.status_code == 201
 
     checkout = client.post(
@@ -113,7 +127,12 @@ def test_empty_cart_checkout_is_rejected(client: TestClient) -> None:
 def test_route_contract_exposes_exactly_ten_store_routes(client: TestClient) -> None:
     """The OpenAPI contract contains the ten specified store operations."""
     paths = client.get("/openapi.json").json()["paths"]
-    operations = {(method.upper(), path) for path, item in paths.items() for method in item if method != "parameters"}
+    operations = {
+        (method.upper(), path)
+        for path, item in paths.items()
+        for method in item
+        if method != "parameters"
+    }
     assert operations == {
         ("GET", "/categories/"),
         ("GET", "/products/"),

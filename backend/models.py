@@ -1,8 +1,15 @@
 """SQLAlchemy models for products, carts, and orders."""
 
-from datetime import datetime
-
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -34,7 +41,11 @@ class Product(Base):
 
 class CartItem(Base):
     __tablename__ = "cart_items"
-    __table_args__ = (UniqueConstraint("customer_name", "product_id", name="uq_cart_customer_product"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_name", "product_id", name="uq_cart_customer_product"
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     customer_name = Column(String, nullable=False)
@@ -54,7 +65,12 @@ class Order(Base):
     status = Column(String, default="pending", nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
-    items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan", lazy="selectin")
+    items = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class OrderItem(Base):

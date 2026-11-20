@@ -1,7 +1,6 @@
 """Pydantic schemas used by the store API."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class CategoryResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -19,7 +18,7 @@ class CategoryResponse(BaseModel):
 class ProductResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     price: float
     stock: int
     category_id: int

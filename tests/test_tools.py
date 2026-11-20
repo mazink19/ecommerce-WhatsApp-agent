@@ -34,7 +34,9 @@ class FakeSession:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
-    def request(self, method: str, url: str, timeout: int, **kwargs: Any) -> FakeResponse:
+    def request(
+        self, method: str, url: str, timeout: int, **kwargs: Any
+    ) -> FakeResponse:
         """Return a response based on the requested path."""
         self.calls.append((method, url, kwargs))
         if url.endswith("/products/404/"):
@@ -89,3 +91,50 @@ def test_tool_catalog_has_ten_documented_annotated_functions() -> None:
     for tool in tools.ALL_TOOLS:
         assert tool.__doc__ and "Args:" in tool.__doc__ and "Returns:" in tool.__doc__
         assert inspect.get_annotations(tool)
+
+
+def test_search_attaches_grounded_same_category_alternatives(monkeypatch: Any) -> None:
+    """Out-of-stock searches include backend-sourced alternatives for the agent to offer."""
+    responses = iter(
+        [
+            FakeResponse(
+                [{"id": 3, "stock": 0, "category_id": 2, "name": "Sold Out Speaker"}]
+            ),
+            FakeResponse(
+                [{"id": 4, "stock": 5, "category_id": 2, "name": "Available Speaker"}]
+            ),
+        ]
+    )
+
+    class SearchSession:
+        """Return controlled search payloads in order."""
+
+        def request(
+            self, method: str, url: str, timeout: int, **kwargs: Any
+        ) -> FakeResponse:
+            """Serve the next configured search response."""
+            return next(responses)
+
+    monkeypatch.setattr(tools, "_SESSION", SearchSession())
+    result = tools.search_products("speaker")
+    assert result["success"] is True
+    assert result["in_stock_alternatives"] == [
+        {"id": 4, "stock": 5, "category_id": 2, "name": "Available Speaker"}
+    ]
+
+
+def test_backend_connection_failure_is_reported_without_success(
+    monkeypatch: Any,
+) -> None:
+    """An unavailable backend remains a visible failure instead of a successful tool result."""
+
+    class OfflineSession:
+        """Simulate an unreachable API endpoint."""
+
+        def request(self, *args: Any, **kwargs: Any) -> Any:
+            raise requests.ConnectionError("connection refused")
+
+    monkeypatch.setattr(tools, "_SESSION", OfflineSession())
+    result = tools.get_customer_cart("offline-customer")
+    assert result["success"] is False
+    assert "unavailable" in result["error"].lower()

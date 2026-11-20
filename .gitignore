@@ -6,6 +6,8 @@
 *.sqlite3
 session*
 store-bot*
+#files 
+
 
 # Python-generated files
 __pycache__/

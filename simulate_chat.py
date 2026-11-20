@@ -99,9 +99,19 @@ def run_chat(
 
 def main() -> None:
     """Parse command-line options and start the simulator."""
-    parser = argparse.ArgumentParser(description="Simulate a WhatsApp store customer in the terminal.")
-    parser.add_argument("--phone", default="201000000001", help="Initial simulated customer phone/WhatsApp ID")
-    parser.add_argument("--verbose", action="store_true", help="Print tool calls and their backend results")
+    parser = argparse.ArgumentParser(
+        description="Simulate a WhatsApp store customer in the terminal."
+    )
+    parser.add_argument(
+        "--phone",
+        default="201000000001",
+        help="Initial simulated customer phone/WhatsApp ID",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print tool calls and their backend results",
+    )
     args = parser.parse_args()
     configure_utf8()
     run_chat(args.phone, args.verbose)

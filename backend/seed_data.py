@@ -3,10 +3,14 @@
 from .database import SessionLocal, engine
 from .models import Base, Category, Product
 
-
 CATALOG = {
     "Computers": [
-        ("Mechanical Keyboard", "RGB mechanical keyboard with blue switches", 89.99, 12),
+        (
+            "Mechanical Keyboard",
+            "RGB mechanical keyboard with blue switches",
+            89.99,
+            12,
+        ),
         ("Gaming Mouse", "Ergonomic 16000 DPI wireless gaming mouse", 49.99, 25),
         ("Gaming Monitor 27-inch", "144Hz QHD IPS monitor", 279.99, 4),
         ("USB Webcam", "1080p webcam with privacy cover", 39.99, 18),
@@ -14,7 +18,12 @@ CATALOG = {
         ("Wireless Keyboard", "Slim Bluetooth keyboard", 34.99, 20),
     ],
     "Audio": [
-        ("Noise Cancelling Headphones", "Over-ear wireless headphones with ANC", 149.99, 8),
+        (
+            "Noise Cancelling Headphones",
+            "Over-ear wireless headphones with ANC",
+            149.99,
+            8,
+        ),
         ("Waterproof Bluetooth Speaker", "Portable 20W outdoor speaker", 59.99, 0),
         ("Wireless Earbuds", "Compact earbuds with charging case", 69.99, 30),
         ("USB Microphone", "Cardioid microphone for streaming", 79.99, 10),
@@ -58,7 +67,9 @@ def seed() -> None:
         if db.query(Category).count():
             return
         for category_name, products in CATALOG.items():
-            category = Category(name=category_name, description=f"{category_name} products")
+            category = Category(
+                name=category_name, description=f"{category_name} products"
+            )
             db.add(category)
             db.flush()
             db.add_all(

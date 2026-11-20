@@ -1,6 +1,9 @@
 """FastAPI routes for the e-commerce store."""
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+# FastAPI dependencies use Depends(...) as parameter defaults by design.
+# ruff: noqa: B008
+
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -63,7 +66,12 @@ def list_products(
     query = db.query(models.Product)
     if keyword.strip():
         match = f"%{keyword.strip()}%"
-        query = query.filter(or_(models.Product.name.ilike(match), models.Product.description.ilike(match)))
+        query = query.filter(
+            or_(
+                models.Product.name.ilike(match),
+                models.Product.description.ilike(match),
+            )
+        )
     if category_id is not None:
         query = query.filter(models.Product.category_id == category_id)
     if in_stock_only:
@@ -99,7 +107,9 @@ def get_cart(customer_name: str, db: Session = Depends(get_db)) -> dict[str, obj
 
 
 @app.post("/cart/items/", response_model=schemas.CartItemResponse, status_code=201)
-def add_cart_item(payload: schemas.CartItemAdd, db: Session = Depends(get_db)) -> dict[str, object]:
+def add_cart_item(
+    payload: schemas.CartItemAdd, db: Session = Depends(get_db)
+) -> dict[str, object]:
     """Add stock-validated quantity to a customer's cart, merging existing lines."""
     product = db.get(models.Product, payload.product_id)
     if product is None:
@@ -114,7 +124,10 @@ def add_cart_item(payload: schemas.CartItemAdd, db: Session = Depends(get_db)) -
     )
     requested = payload.quantity + (existing.quantity if existing else 0)
     if requested > product.stock:
-        raise HTTPException(status_code=400, detail=f"Only {product.stock} unit(s) of {product.name} are available")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {product.stock} unit(s) of {product.name} are available",
+        )
     if existing:
         existing.quantity = requested
         cart_item = existing
@@ -144,13 +157,17 @@ def remove_cart_item(item_id: int, db: Session = Depends(get_db)) -> dict[str, s
 @app.delete("/cart/{customer_name}/")
 def clear_cart(customer_name: str, db: Session = Depends(get_db)) -> dict[str, str]:
     """Remove all lines from a customer's cart."""
-    db.query(models.CartItem).filter(models.CartItem.customer_name == customer_name).delete()
+    db.query(models.CartItem).filter(
+        models.CartItem.customer_name == customer_name
+    ).delete()
     db.commit()
     return {"detail": "Cart cleared"}
 
 
 @app.post("/orders/checkout/", response_model=schemas.OrderResponse, status_code=201)
-def checkout(payload: schemas.CheckoutRequest, db: Session = Depends(get_db)) -> dict[str, object]:
+def checkout(
+    payload: schemas.CheckoutRequest, db: Session = Depends(get_db)
+) -> dict[str, object]:
     """Atomically create an order, decrement inventory, and empty its cart."""
     try:
         cart_items = (
@@ -214,7 +231,9 @@ def cancel_order(order_id: int, db: Session = Depends(get_db)) -> dict[str, obje
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
     if order.status not in {"pending", "confirmed"}:
-        raise HTTPException(status_code=400, detail=f"Order cannot be cancelled while {order.status}")
+        raise HTTPException(
+            status_code=400, detail=f"Order cannot be cancelled while {order.status}"
+        )
     try:
         for item in order.items:
             product = db.get(models.Product, item.product_id)
