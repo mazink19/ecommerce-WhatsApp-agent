@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -16,18 +15,20 @@ from typing import Any
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from groq import APIError as GroqAPIError
-from groq import Groq
-from requests import RequestException
 
 from tools import ALL_TOOLS
 
 load_dotenv()
 LOGGER = logging.getLogger(__name__)
 MAX_SESSION_TURNS = 40
-GROQ_REQUEST_TIMEOUT_SECONDS = 20.0
-GROQ_MAX_RETRIES = 1
 DEFAULT_MAX_TOOL_CALLS_PER_TURN = 8
+MAX_TOOL_CALLS_PER_TURN = max(
+    1,
+    int(os.getenv(
+        "MAX_TOOL_CALLS_PER_TURN",
+        DEFAULT_MAX_TOOL_CALLS_PER_TURN,
+    )),
+)
 sessions_customer: dict[str, Any] = {}
 _session_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 _session_guard = threading.Lock()
@@ -38,129 +39,6 @@ _clarification_state: dict[str, str | None] = defaultdict(lambda: None)
 _pending_quantity: dict[str, dict[str, Any]] = {}
 _turn_additions: dict[str, dict[int, dict[str, Any]]] = defaultdict(dict)
 _client: Any | None = None
-_provider = "gemini"
-_groq_tools: dict[str, Callable[..., dict[str, Any]]] = {}
-
-
-class GroqChatSession:
-    """Small chat-compatible wrapper implementing Groq's explicit tool loop."""
-
-    def __init__(
-        self,
-        phone: str,
-        client: Any,
-        model: str,
-        tools: list[Callable[..., dict[str, Any]]],
-    ) -> None:
-        self.phone = phone
-        self.client = client
-        self.model = model
-        self.messages: list[dict[str, Any]] = [
-            {"role": "system", "content": build_system_prompt(phone)}
-        ]
-        self.tool_schemas = [_groq_tool_schema(tool) for tool in tools]
-        self.tools = {tool.__name__: tool for tool in tools}
-
-    def send_message(self, text: str) -> Any:
-        """Complete one user turn, executing Groq tool calls until text is returned."""
-        language = detect_language(text)
-        self.messages.append(
-            {
-                "role": "system",
-                "content": f"For the next reply, use {language}. This latest message overrides prior language.",
-            }
-        )
-        self.messages.append({"role": "user", "content": text})
-        max_calls = max(
-            1,
-            int(os.getenv("MAX_TOOL_CALLS_PER_TURN", DEFAULT_MAX_TOOL_CALLS_PER_TURN)),
-        )
-        executed_calls = 0
-        seen_calls: dict[tuple[str, str], dict[str, Any]] = {}
-        for _ in range(max_calls + 1):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=self.messages,
-                tools=self.tool_schemas,
-                tool_choice="auto",
-                temperature=0.2,
-            )
-            message = response.choices[0].message
-            self.messages.append(message.model_dump(exclude_none=True))
-            if not message.tool_calls:
-                return type("Response", (), {"text": message.content or ""})()
-            for call in message.tool_calls:
-                function = self.tools.get(call.function.name)
-                raw_arguments = call.function.arguments or "{}"
-                key = (call.function.name, raw_arguments)
-                if key in seen_calls:
-                    result = seen_calls[key]
-                elif executed_calls >= max_calls:
-                    result = {
-                        "success": False,
-                        "error": "Turn tool-call limit reached; no further action was executed.",
-                    }
-                if function is None:
-                    result: dict[str, Any] = {"success": False, "error": "Unknown tool"}
-                elif key not in seen_calls and executed_calls < max_calls:
-                    try:
-                        arguments = json.loads(raw_arguments)
-                        result = function(**arguments)
-                    except (
-                        ValueError,
-                        TypeError,
-                        KeyError,
-                        RuntimeError,
-                        RequestException,
-                    ) as exc:
-                        result = {
-                            "success": False,
-                            "error": f"Tool call failed ({type(exc).__name__}).",
-                        }
-                    seen_calls[key] = result
-                    executed_calls += 1
-                self.messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": json.dumps(result, ensure_ascii=False),
-                    }
-                )
-        raise RuntimeError(
-            "Groq did not produce a final response within the configured tool-call limit"
-        )
-
-
-def _groq_tool_schema(tool: Callable[..., Any]) -> dict[str, Any]:
-    """Convert one annotated Python tool into a Groq JSON function schema."""
-    import inspect
-
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    for name, parameter in inspect.signature(tool).parameters.items():
-        annotation = parameter.annotation
-        json_type = (
-            "integer"
-            if annotation is int
-            else "boolean"
-            if annotation is bool
-            else "string"
-        )
-        properties[name] = {"type": json_type}
-        if parameter.default is inspect.Parameter.empty:
-            required.append(name)
-    return {
-        "type": "function",
-        "function": {
-            "name": tool.__name__,
-            "description": tool.__doc__ or tool.__name__,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-            },
-        },
-    }
 
 
 def build_system_prompt(phone: str) -> str:
@@ -195,6 +73,7 @@ def build_system_prompt(phone: str) -> str:
         Use WhatsApp *bold* for prices, product names, order numbers, and totals."""
 
 
+
 def bind_customer_tool(
     tool: Callable[..., dict[str, Any]], phone: str
 ) -> Callable[..., dict[str, Any]]:
@@ -206,28 +85,58 @@ def bind_customer_tool(
     @wraps(tool)
     def bound_tool(*args: Any, **kwargs: Any) -> dict[str, Any]:
         bound = signature.bind_partial(*args, **kwargs)
+
         if "customer_name" in signature.parameters:
             bound.arguments["customer_name"] = phone
+
         if tool.__name__ == "add_item_to_cart":
             product_id = int(bound.arguments["product_id"])
             quantity = int(bound.arguments.get("quantity", 1))
+
             if product_id in _turn_additions[phone]:
                 return _turn_additions[phone][product_id]
-            stock_result = ALL_TOOLS[2](product_id)
-            _last_tool_calls[phone].append(
-                {
-                    "tool": "get_product_details",
-                    "arguments": {"product_id": product_id},
-                    "result": stock_result,
+
+            # Validate the explicitly requested quantity BEFORE API calls.
+            requested_quantity = _single_requested_quantity.get(phone)
+
+            if (
+                requested_quantity is not None
+                and quantity != requested_quantity
+            ):
+                result = {
+                    "success": False,
+                    "error": (
+                        f"Customer explicitly requested {requested_quantity} unit(s). "
+                        f"Do not silently change the quantity to {quantity}; "
+                        "retry with the requested quantity so stock can be checked."
+                    ),
                 }
-            )
+
+                _last_tool_calls[phone].append({
+                    "tool": tool.__name__,
+                    "arguments": dict(bound.arguments),
+                    "result": result,
+                })
+                return result
+
+            # Only verify stock after the quantity guard passes.
+            stock_result = ALL_TOOLS[2](product_id)
+
+            _last_tool_calls[phone].append({
+                "tool": "get_product_details",
+                "arguments": {"product_id": product_id},
+                "result": stock_result,
+            })
+
             if not stock_result.get("success"):
                 return {
                     "success": False,
                     "error": "Could not verify current stock; no item was added.",
                 }
+
             product = stock_result.get("data", stock_result)
             available = int(product.get("stock", 0))
+
             if quantity > available:
                 _pending_quantity[phone] = {
                     "product_id": product_id,
@@ -235,42 +144,31 @@ def bind_customer_tool(
                     "requested": quantity,
                     "available": available,
                 }
+
                 return {
                     "success": False,
-                    "error": f"Requested {quantity}, current available stock is {available}. Do not add any quantity. Ask whether the customer explicitly approves adding exactly {available}.",
-                }
-        requested_quantity = _single_requested_quantity.get(phone)
-        if tool.__name__ == "add_item_to_cart" and requested_quantity is not None:
-            proposed_quantity = int(bound.arguments.get("quantity", 1))
-            if proposed_quantity != requested_quantity:
-                result = {
-                    "success": False,
                     "error": (
-                        f"Customer explicitly requested {requested_quantity} unit(s). Do not silently change "
-                        f"the quantity to {proposed_quantity}; retry with the requested quantity so stock can be checked."
+                        f"Requested {quantity}, current available stock is "
+                        f"{available}. Do not add any quantity. Ask whether "
+                        f"the customer explicitly approves adding exactly {available}."
                     ),
                 }
-                _last_tool_calls[phone].append(
-                    {
-                        "tool": tool.__name__,
-                        "arguments": dict(bound.arguments),
-                        "result": result,
-                    }
-                )
-                return result
+
         result = tool(*bound.args, **bound.kwargs)
+
         if tool.__name__ == "add_item_to_cart" and result.get("success"):
             _turn_additions[phone][int(bound.arguments["product_id"])] = result
-        _last_tool_calls[phone].append(
-            {
-                "tool": tool.__name__,
-                "arguments": dict(bound.arguments),
-                "result": result,
-            }
-        )
+
+        _last_tool_calls[phone].append({
+            "tool": tool.__name__,
+            "arguments": dict(bound.arguments),
+            "result": result,
+        })
+
         return result
 
     return bound_tool
+
 
 
 def _session_tools(phone: str) -> list[Callable[..., dict[str, Any]]]:
@@ -281,19 +179,7 @@ def _session_tools(phone: str) -> list[Callable[..., dict[str, Any]]]:
 def _get_client() -> Any:
     """Create the Gemini client lazily so local tests do not require a secret."""
     global _client
-    global _provider
-    _provider = os.getenv("AI_PROVIDER", "gemini").strip().lower()
     if _client is None:
-        if _provider == "groq":
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise RuntimeError("GROQ_API_KEY is not configured")
-            _client = Groq(
-                api_key=api_key,
-                timeout=GROQ_REQUEST_TIMEOUT_SECONDS,
-                max_retries=GROQ_MAX_RETRIES,
-            )
-            return _client
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is not configured")
@@ -309,24 +195,17 @@ def get_session(phone: str) -> Any:
     with _session_guard:
         if phone not in sessions_customer:
             tools = _session_tools(phone)
-            if os.getenv("AI_PROVIDER", "gemini").strip().lower() == "groq":
-                client = _get_client()
-                model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-                sessions_customer[phone] = GroqChatSession(phone, client, model, tools)
-                _session_turns[phone] = 0
-                return sessions_customer[phone]
-            _provider = "gemini"
-            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
             config = types.GenerateContentConfig(
                 system_instruction=build_system_prompt(phone),
                 tools=tools,
-                temperature=0.2,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    maximum_remote_calls=15
+                    maximum_remote_calls=MAX_TOOL_CALLS_PER_TURN
                 ),
             )
             sessions_customer[phone] = _get_client().chats.create(
-                model=model, config=config
+                model=model,
+                config=config,
             )
             _session_turns[phone] = 0
         return sessions_customer[phone]
@@ -625,16 +504,13 @@ def handle_message(phone: str, text: str) -> str:
         for attempt in range(2):
             try:
                 session = get_session(phone)
-                if os.getenv("AI_PROVIDER", "gemini").strip().lower() != "groq":
-                    language = detect_language(text)
-                    turn_message = (
-                        f"[MANDATORY CURRENT-TURN INSTRUCTION: Reply in {language}. This latest "
-                        "message overrides the language of all previous turns. For price or stock "
-                        "questions, call the relevant backend tool in this turn; never reuse old data.]\n"
-                        f"{text}"
-                    )
-                else:
-                    turn_message = text
+                language = detect_language(text)
+                turn_message = (
+                    f"[MANDATORY CURRENT-TURN INSTRUCTION: Reply in {language}. This latest "
+                    "message overrides the language of all previous turns. For price or stock "
+                    "questions, call the relevant backend tool in this turn; never reuse old data.]\\n"
+                    f"{text}"
+                )
                 response = session.send_message(turn_message)
                 _session_turns[phone] += 1
                 reply = getattr(response, "text", None)
@@ -652,7 +528,6 @@ def handle_message(phone: str, text: str) -> str:
                 return _friendly_error(text)
             except (
                 genai.errors.APIError,
-                GroqAPIError,
                 RuntimeError,
                 ValueError,
             ) as exc:

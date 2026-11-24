@@ -4,4 +4,28 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "fastapi>=0.165.0",
+    "google-genai>=3.6.1",
+    "linkpreview>=0.13.3",
+    "neonize>=0.12.4",
+    "phonenumbers>=9.0.44",
+    "pillow>=13.0.0",
+    "pydantic>=2.14.4",
+    "pytest>=9.2.0",
+    "python-dotenv>=1.2.4",
+    "python-magic-bin>=0.4.14",
+    "pyyaml>=6.0.4",
+    "requests>=2.34.2",
+    "ruff>=0.17.6",
+    "segno>=1.6.6",
+    "sqlalchemy>=2.1.9",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+]

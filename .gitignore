@@ -4,6 +4,8 @@
 # Databases and WhatsApp session state
 *.db
 *.sqlite3
+*.db-*
+*.sqlite3-*
 session*
 store-bot*
 #files 

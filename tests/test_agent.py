@@ -1,6 +1,5 @@
 """Unit tests for per-customer Gemini session behavior."""
 
-import json
 from collections import defaultdict
 from typing import Any
 
@@ -45,7 +44,6 @@ class FakeClient:
 def setup_fake_client(monkeypatch: Any) -> FakeClient:
     """Reset state and install a fake Gemini client."""
     fake = FakeClient()
-    monkeypatch.setenv("AI_PROVIDER", "gemini")
     monkeypatch.setattr(agent, "_client", fake)
     agent.sessions_customer.clear()
     agent._session_turns.clear()
@@ -63,6 +61,29 @@ def test_sessions_are_isolated_per_phone(monkeypatch: Any) -> None:
     first_prompt = fake.chats.created[0][1].system_instruction
     second_prompt = fake.chats.created[1][1].system_instruction
     assert "2010" in first_prompt and "2020" in second_prompt
+
+
+def test_gemini_model_and_tool_call_limit_are_configured(monkeypatch: Any) -> None:
+    """The selected Gemini model and configured tool-call cap reach the SDK."""
+    fake = setup_fake_client(monkeypatch)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    monkeypatch.setattr(agent, "MAX_TOOL_CALLS_PER_TURN", 5)
+
+    agent.get_session("model-test")
+
+    model, config, _ = fake.chats.created[0]
+    assert model == "gemini-3.5-flash-lite"
+    assert config.automatic_function_calling.maximum_remote_calls == 5
+
+
+def test_default_gemini_model_is_flash(monkeypatch: Any) -> None:
+    """Gemini 2.5 Flash remains the default model."""
+    fake = setup_fake_client(monkeypatch)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+
+    agent.get_session("default-model-test")
+
+    assert fake.chats.created[0][0] == "gemini-2.5-flash"
 
 
 def test_customer_name_wrapper_always_overrides_model_value() -> None:
@@ -157,275 +178,6 @@ def test_ambiguous_mouse_is_clarified_and_choice_resumes(monkeypatch: Any) -> No
 def test_specific_mouse_does_not_trigger_clarification():
     """A fully specified product request continues to the normal agent workflow."""
     assert not agent._is_ambiguous_mouse_request("Add Logitech MX Master 3S to my cart")
-
-
-def test_groq_request_includes_latest_language_directive(monkeypatch: Any) -> None:
-    """Groq API messages carry a per-turn language instruction independent of history."""
-    captured: list[dict[str, Any]] = []
-
-    class Completions:
-        def create(self, **kwargs: Any) -> Any:
-            captured.extend(kwargs["messages"][-2:])
-            message = type(
-                "Message",
-                (),
-                {
-                    "content": "Here you go",
-                    "tool_calls": None,
-                    "model_dump": lambda self, **k: {
-                        "role": "assistant",
-                        "content": self.content,
-                    },
-                },
-            )()
-            return type(
-                "Response",
-                (),
-                {"choices": [type("Choice", (), {"message": message})()]},
-            )()
-
-    client = type(
-        "Client", (), {"chat": type("Chat", (), {"completions": Completions()})()}
-    )()
-    session = agent.GroqChatSession("p", client, "test-model", [])
-    session.send_message("What is the price?")
-    assert captured[0]["role"] == "system"
-    assert "English" in captured[0]["content"]
-
-
-def test_groq_deduplicates_identical_tool_calls() -> None:
-    """A repeated identical call is acknowledged with its result and executes once."""
-    executions: list[int] = []
-
-    def search_products(keyword: str) -> dict[str, Any]:
-        """Search for a product.
-
-        Args:
-            keyword: Product search term.
-
-        Returns:
-            A search result.
-        """
-        executions.append(1)
-        return {"success": True, "data": []}
-
-    call = type(
-        "ToolCall",
-        (),
-        {
-            "id": "c1",
-            "function": type(
-                "Function",
-                (),
-                {"name": "search_products", "arguments": '{"keyword":"mouse"}'},
-            )(),
-        },
-    )()
-    assistant = type(
-        "Message",
-        (),
-        {
-            "tool_calls": [call],
-            "content": None,
-            "model_dump": lambda self, **kwargs: {
-                "role": "assistant",
-                "tool_calls": [],
-            },
-        },
-    )()
-    final = type(
-        "Message",
-        (),
-        {
-            "tool_calls": None,
-            "content": "No matching product.",
-            "model_dump": lambda self, **kwargs: {
-                "role": "assistant",
-                "content": self.content,
-            },
-        },
-    )()
-
-    class Completions:
-        count = 0
-
-        def create(self, **kwargs: Any) -> Any:
-            self.count += 1
-            message = assistant if self.count <= 2 else final
-            return type(
-                "Response",
-                (),
-                {"choices": [type("Choice", (), {"message": message})()]},
-            )()
-
-    client = type(
-        "Client", (), {"chat": type("Chat", (), {"completions": Completions()})()}
-    )()
-    session = agent.GroqChatSession("p", client, "test-model", [search_products])
-    result = session.send_message("Find a mouse")
-    assert result.text == "No matching product."
-    assert len(executions) == 1
-
-
-def test_groq_enforces_configured_tool_call_limit(monkeypatch: Any) -> None:
-    """The model cannot execute more unique tool actions than the configured cap."""
-    monkeypatch.setenv("MAX_TOOL_CALLS_PER_TURN", "1")
-    executions: list[str] = []
-
-    def search_products(keyword: str) -> dict[str, Any]:
-        """Search the catalog.
-
-        Args:
-            keyword: Search term.
-
-        Returns:
-            Search data.
-        """
-        executions.append(keyword)
-        return {"success": True}
-
-    calls = [
-        type(
-            "ToolCall",
-            (),
-            {
-                "id": str(i),
-                "function": type(
-                    "Function",
-                    (),
-                    {
-                        "name": "search_products",
-                        "arguments": json.dumps({"keyword": f"term{i}"}),
-                    },
-                )(),
-            },
-        )()
-        for i in range(2)
-    ]
-    messages = [
-        type(
-            "Message",
-            (),
-            {
-                "tool_calls": [call],
-                "content": None,
-                "model_dump": lambda self, **kwargs: {
-                    "role": "assistant",
-                    "tool_calls": [],
-                },
-            },
-        )()
-        for call in calls
-    ]
-    final = type(
-        "Message",
-        (),
-        {
-            "tool_calls": None,
-            "content": "Stopped safely.",
-            "model_dump": lambda self, **kwargs: {
-                "role": "assistant",
-                "content": self.content,
-            },
-        },
-    )()
-
-    class Completions:
-        index = 0
-
-        def create(self, **kwargs: Any) -> Any:
-            message = messages[self.index] if self.index < len(messages) else final
-            self.index += 1
-            return type(
-                "Response",
-                (),
-                {"choices": [type("Choice", (), {"message": message})()]},
-            )()
-
-    client = type(
-        "Client", (), {"chat": type("Chat", (), {"completions": Completions()})()}
-    )()
-    session = agent.GroqChatSession("p", client, "test-model", [search_products])
-    with pytest.raises(RuntimeError, match="configured tool-call limit"):
-        session.send_message("Find something")
-    assert executions == ["term0"]
-
-
-def test_groq_tool_failure_is_returned_as_failure_data() -> None:
-    """Tool exceptions are safely represented to the model without leaking exception contents."""
-
-    def search_products(keyword: str) -> dict[str, Any]:
-        """Search.
-
-        Args:
-            keyword: Term.
-
-        Returns:
-            Data.
-        """
-        raise RuntimeError("sensitive internal details")
-
-    call = type(
-        "ToolCall",
-        (),
-        {
-            "id": "failure",
-            "function": type(
-                "Function",
-                (),
-                {"name": "search_products", "arguments": '{"keyword":"x"}'},
-            )(),
-        },
-    )()
-    messages = [
-        type(
-            "Message",
-            (),
-            {
-                "tool_calls": [call],
-                "content": None,
-                "model_dump": lambda self, **kwargs: {
-                    "role": "assistant",
-                    "tool_calls": [],
-                },
-            },
-        )(),
-        type(
-            "Message",
-            (),
-            {
-                "tool_calls": None,
-                "content": "Search failed.",
-                "model_dump": lambda self, **kwargs: {
-                    "role": "assistant",
-                    "content": self.content,
-                },
-            },
-        )(),
-    ]
-
-    class Completions:
-        index = 0
-
-        def create(self, **kwargs: Any) -> Any:
-            message = messages[self.index]
-            self.index += 1
-            return type(
-                "Response",
-                (),
-                {"choices": [type("Choice", (), {"message": message})()]},
-            )()
-
-    client = type(
-        "Client", (), {"chat": type("Chat", (), {"completions": Completions()})()}
-    )()
-    session = agent.GroqChatSession("p", client, "test-model", [search_products])
-    session.send_message("Search")
-    tool_result = json.loads(session.messages[-2]["content"])
-    assert tool_result == {
-        "success": False,
-        "error": "Tool call failed (RuntimeError).",
-    }
 
 
 @pytest.mark.parametrize("requested", [2, 5])

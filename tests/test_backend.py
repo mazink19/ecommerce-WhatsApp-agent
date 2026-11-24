@@ -1,19 +1,43 @@
-"""Contract tests for the FastAPI store backend."""
-
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from backend import models
-from backend.database import Base, SessionLocal, engine
-from backend.main import app
+from backend.database import Base
+from backend.main import app, get_db
 
+test_engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+
+TestingSessionLocal = sessionmaker(
+    bind=test_engine,
+    autoflush=False,
+    autocommit=False,
+)
+
+
+def override_get_db():
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+app.dependency_overrides[get_db] = override_get_db
 
 @pytest.fixture(autouse=True)
-def store_data() -> None:
-    """Reset the database and insert a compact deterministic catalog."""
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as db:
+def store_data():
+    Base.metadata.drop_all(bind=test_engine)
+    Base.metadata.create_all(bind=test_engine)
+
+    with TestingSessionLocal() as db:
+        # Keep your existing category and product insertion code here.
         computers = models.Category(name="Computers", description="Computer gear")
         audio = models.Category(name="Audio", description="Audio gear")
         db.add_all([computers, audio])

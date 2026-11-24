@@ -5,7 +5,6 @@ pydantic
 requests
 python-dotenv
 google-genai
-groq
 neonize
 pytest
 httpx
