@@ -17,7 +17,13 @@ The system uses Google Gemini 2.5 Flash by default, with Gemini 3.5 Flash-Lite a
 - **Safe tool execution:** Prevent silent quantity reductions and avoid inventing product or order information.
 - **Gemini integration:** Uses Gemini 2.5 Flash by default, with Gemini 3.5 Flash-Lite as an alternative.
 
-## Demo
+
+## Demo Video
+
+Watch the project demonstration:
+
+https://github.com/user-attachments/assets/56ab9575-84ad-46bf-b46b-af524b75fc32
+
 
 ### English conversation
 
