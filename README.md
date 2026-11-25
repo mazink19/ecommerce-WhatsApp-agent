@@ -17,37 +17,59 @@ The system uses Google Gemini 2.5 Flash by default, with Gemini 3.5 Flash-Lite a
 - **Safe tool execution:** Prevent silent quantity reductions and avoid inventing product or order information.
 - **Gemini integration:** Uses Gemini 2.5 Flash by default, with Gemini 3.5 Flash-Lite as an alternative.
 
-
 ## Demo Video
 
-Watch the project demonstration:
+The project demonstration covers the FastAPI backend, WhatsApp integration, Gemini-powered agent, product discovery, shopping cart operations, and application testing.
 
-https://github.com/user-attachments/assets/56ab9575-84ad-46bf-b46b-af524b75fc32
+**Watch the project demonstration:**
 
+[Watch Demo Video](https://github.com/user-attachments/assets/125ba400-7996-4c83-9642-ab89534e8a40)
 
-### English conversation
+*The video duration should be updated to reflect the final combined recording.*
+
+## Example Conversations
+
+The following examples illustrate how customers interact with the assistant in English and Arabic.
+
+### English Conversation
 
 **Customer:** Show me the available products.
 
-**Assistant:** Here are the products currently available in the store...
+**Assistant:** Here are the products currently available in the store, including their prices and availability.
 
-**Customer:** Add 2 Gaming Mouse to my cart.
+**Customer:** Add 10 Gaming Mouse to my cart.
 
-**Assistant:** I've added 2 Gaming Mouse to your cart.
+**Assistant:** The requested quantity cannot be added because there isn't enough stock available. Would you like to choose a smaller quantity?
+
+**Customer:** Add 2 Gaming Mouse instead.
+
+**Assistant:** I've added 2 Gaming Mouse to your cart successfully.
 
 **Customer:** Show my cart.
 
-**Assistant:** Your cart contains 2 Gaming Mouse. Here's your current subtotal...
+**Assistant:** Your cart contains 2 Gaming Mouse. Here's your current subtotal.
 
-### Arabic conversation
+**Customer:** Checkout using Cairo – Maadi as my shipping address.
+
+**Assistant:** Your order has been created successfully. Here are your order details and total.
+
+### Arabic Conversation
 
 **Customer:** وريني المنتجات المتاحة.
 
-**Assistant:** يعرض المساعد المنتجات المتاحة حاليًا من قاعدة بيانات المتجر.
+**Assistant:** دي المنتجات المتاحة حاليًا في المتجر، مع الأسعار والكميات الموجودة في المخزون.
 
 **Customer:** أضف لي ٢ ماوس.
 
-**Assistant:** يتعرف المساعد على المنتج والكمية، ويتحقق من المخزون قبل الإضافة.
+**Assistant:** تمت إضافة ٢ ماوس إلى سلة التسوق بنجاح.
+
+**Customer:** وريني السلة.
+
+**Assistant:** السلة فيها ٢ ماوس. وده إجمالي الطلب الحالي.
+
+**Customer:** أتمم الطلب، عنوان التوصيل المعادي، القاهرة.
+
+**Assistant:** تم إنشاء طلبك بنجاح. إليك تفاصيل الطلب والإجمالي.
 
 *These are illustrative conversation examples, not captured production transcripts.*
 
@@ -127,13 +149,12 @@ Before running the project, install:
 ## Project Structure
 
 ```text
-ecommerce-whatsapp-agent/
+ecommerce-WhatsApp-agent/
 │
 ├── backend/
 │   ├── main.py
 │   ├── database.py
-│   ├── models.py
-│   └── ecommerce.db
+│   └── models.py
 │
 ├── tests/
 │   ├── test_agent.py
@@ -154,9 +175,7 @@ ecommerce-whatsapp-agent/
 
 ## Installation and Setup
 
-### 1. Get the project
-
-Open the project repository and clone it using its GitHub URL:
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/mazink19/ecommerce-WhatsApp-agent.git
@@ -176,12 +195,8 @@ Create a `.env` file in the project root using `.env.example` as a template.
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
-
-
 MAX_TOOL_CALLS_PER_TURN=8
-
 BACKEND_URL=http://localhost:8000
-
 STORE_NAME=My Store
 ```
 
@@ -243,13 +258,19 @@ Follow the QR pairing instructions displayed in the terminal to connect WhatsApp
 
 Keep the bot running to receive and respond to messages.
 
-## Database
+## Database Setup
 
 The application uses SQLite for persistent store data.
 
-The database is configured through `backend/database.py`. If the database does not contain the required sample categories and products, populate it before testing the assistant.
+The database is configured through `backend/database.py`.
 
-Carts and orders are stored in SQLite and survive application restarts.
+**Important:** Starting the FastAPI backend initializes the database tables, but it does not automatically populate sample categories and products.
+
+Before testing the assistant, make sure the database contains categories and products with valid names, prices, and stock quantities.
+
+If the database is empty, populate it with sample store data before starting a shopping conversation. Product and category data are required for product discovery, inventory verification, and checkout.
+
+Carts and orders are stored in SQLite and persist across application restarts.
 
 ## Conversation Sessions
 
